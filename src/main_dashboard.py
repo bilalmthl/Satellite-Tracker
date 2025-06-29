@@ -1,47 +1,60 @@
 import streamlit as st
 import pandas as pd
-from src.satellite_tracking import get_satellite_position, get_available_satellites
+from streamlit_autorefresh import st_autorefresh
+from src.satellite_tracking import (
+    get_satellite_position,
+    get_available_satellites
+)
 from src.satellite_pass_ui import predict_passes
 from src.orbit_visualization import generate_orbit_plot
 
-# --- Streamlit config ---
+# --- Streamlit Config ---
 st.set_page_config(page_title="Satellite Tracker", layout="wide")
 st.title("🛰️ Satellite Tracker Dashboard")
 
-# --- Sidebar ---
+# --- Sidebar Navigation ---
 st.sidebar.title("Navigation")
 page = st.sidebar.radio("Go to", ["🛰 Real-Time Tracker", "📡 Pass Predictor", "🌍 Orbit Visualizer"])
 
-# Load satellite list dynamically
+# --- Satellite Select with Built-in Search ---
 try:
     all_sats = get_available_satellites()
-    sat_name = st.sidebar.selectbox("Select Satellite", options=all_sats, index=0)
+    sat_name = st.sidebar.selectbox(
+        "🔍 Search & Select Satellite",
+        options=all_sats,
+        index=0,
+        placeholder="Type to filter..."
+    )
 except Exception as e:
     st.sidebar.error(f"Could not load satellites. Defaulting to ISS.")
     sat_name = "ISS (ZARYA)"
 
-# Optional: Auto-refresh for Real-Time tab
+# --- Auto-refresh ---
 auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh every 15s", value=False)
+if auto_refresh:
+    st_autorefresh(interval=15000, key="refresh")
 
-# --- Real-Time Tracker ---
+# ====================
+#     PAGE: TRACKER
+# ====================
 if page == "🛰 Real-Time Tracker":
     st.subheader("Live Satellite Position")
 
     try:
         lat, lon, alt = get_satellite_position(sat_name)
+        st.write(f"**Satellite:** {sat_name}")
         st.write(f"**Latitude:** {lat:.2f}°")
         st.write(f"**Longitude:** {lon:.2f}°")
         st.write(f"**Altitude:** {alt:.2f} km")
 
+        # Display on Map (zoomed out)
         st.map(pd.DataFrame({'lat': [lat], 'lon': [lon]}), zoom=1)
-
-        if auto_refresh:
-            st.experimental_rerun()  # refresh the app loop
-
     except Exception as e:
         st.error(f"Error retrieving satellite position: {e}")
 
-# --- Pass Predictor ---
+# ==========================
+#     PAGE: PASS PREDICTOR
+# ==========================
 elif page == "📡 Pass Predictor":
     st.subheader("Predict Satellite Passes")
 
@@ -58,7 +71,9 @@ elif page == "📡 Pass Predictor":
             else:
                 st.warning("No visible passes found.")
 
-# --- Orbit Visualizer ---
+# ==========================
+#     PAGE: ORBIT VISUALIZER
+# ==========================
 elif page == "🌍 Orbit Visualizer":
     st.subheader("Orbit Visualizer")
 
@@ -73,4 +88,4 @@ elif page == "🌍 Orbit Visualizer":
             except Exception as e:
                 st.error(str(e))
         else:
-            st.info("🌐 CesiumJS integration is coming soon.")
+            st.info("🌐 CesiumJS globe view is coming soon.")

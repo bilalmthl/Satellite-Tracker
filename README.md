@@ -13,4 +13,4 @@ An interactive app to track and visualize satellite orbits in real time using Py
 
 ```bash
 pip install -r requirements.txt
-streamlit run src/main_dashboard.py
+python -m streamlit run src/main_dashboard.py 
