@@ -1,32 +1,43 @@
-import plotly.graph_objects as go
 import numpy as np
+import plotly.graph_objects as go
 from skyfield.api import load
 
-# Load ISS TLE
-stations_url = 'https://celestrak.com/NORAD/elements/stations.txt'
-satellites = load.tle_file(stations_url)
-iss = {sat.name: sat for sat in satellites}['ISS (ZARYA)']
+def generate_orbit_plot(satellite_name='ISS (ZARYA)', num_minutes=90):
+    # Load TLE data and satellite
+    stations_url = 'https://celestrak.com/NORAD/elements/stations.txt'
+    satellites = load.tle_file(stations_url)
+    satellite = {sat.name: sat for sat in satellites}.get(satellite_name)
 
-# Compute orbit positions
-ts = load.timescale()
-minutes = np.linspace(0, 92, 100)  # One ISS orbit (~92 minutes)
-times = ts.utc(2024, 6, 29, 0, minutes)
-positions = iss.at(times).position.km
+    if not satellite:
+        raise ValueError(f"Satellite '{satellite_name}' not found.")
 
-fig = go.Figure(data=[go.Scatter3d(
-    x=positions[0], y=positions[1], z=positions[2],
-    mode='lines',
-    line=dict(width=2, color='blue'),
-    name='ISS Orbit'
-)])
+    # Time range: one orbit (~90 minutes for ISS)
+    ts = load.timescale()
+    minutes = np.linspace(0, num_minutes, 100)
+    times = ts.utc(2025, 6, 29, 0, minutes)
 
-fig.update_layout(
-    title='ISS Orbit Visualization',
-    scene=dict(
-        xaxis_title='X (km)',
-        yaxis_title='Y (km)',
-        zaxis_title='Z (km)'
+    # Get positions in km
+    positions = satellite.at(times).position.km
+    x, y, z = positions
+
+    # Create 3D plot
+    fig = go.Figure(data=[go.Scatter3d(
+        x=x, y=y, z=z,
+        mode='lines',
+        line=dict(color='royalblue', width=3),
+        name='Orbit Path'
+    )])
+
+    # Set 3D layout
+    fig.update_layout(
+        title=f'{satellite_name} Orbit Visualization',
+        scene=dict(
+            xaxis_title='X (km)',
+            yaxis_title='Y (km)',
+            zaxis_title='Z (km)',
+            aspectmode='data'
+        ),
+        margin=dict(l=0, r=0, t=50, b=0)
     )
-)
 
-fig.show()
+    return fig

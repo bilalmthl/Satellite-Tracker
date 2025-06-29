@@ -1,30 +1,20 @@
-import streamlit as st
-from skyfield.api import load, wgs84
-import pandas as pd
+from skyfield.api import load
 
-st.title("Real-Time ISS Tracker")
+TLE_URL = 'https://celestrak.org/NORAD/elements/gp.php?GROUP=stations&FORMAT=tle'
 
-# Load ISS data
-stations_url = 'https://celestrak.com/NORAD/elements/stations.txt'
-satellites = load.tle_file(stations_url)
-iss = {sat.name: sat for sat in satellites}['ISS (ZARYA)']
+def get_available_satellites():
+    """Returns a sorted list of available satellite names from the TLE source."""
+    satellites = load.tle_file(TLE_URL)
+    return sorted([sat.name for sat in satellites])
 
-# Current position
-ts = load.timescale()
-t = ts.now()
-geocentric = iss.at(t)
-subpoint = geocentric.subpoint()
-
-# Display current ISS position
-st.write('### Current ISS Position:')
-st.write(f"Latitude: {subpoint.latitude.degrees:.2f}°")
-st.write(f"Longitude: {subpoint.longitude.degrees:.2f}°")
-st.write(f"Altitude: {subpoint.elevation.km:.2f} km")
-
-# Add a map visualization
-df = pd.DataFrame({
-    'lat': [subpoint.latitude.degrees],
-    'lon': [subpoint.longitude.degrees]
-})
-
-st.map(df, zoom=1)
+def get_satellite_position(satellite_name='ISS (ZARYA)'):
+    """Returns lat, lon, alt of a satellite."""
+    ts = load.timescale()
+    t = ts.now()
+    satellites = load.tle_file(TLE_URL)
+    sat = {s.name: s for s in satellites}.get(satellite_name)
+    if not sat:
+        raise ValueError("Satellite not found in current TLE set.")
+    geocentric = sat.at(t)
+    subpoint = geocentric.subpoint()
+    return subpoint.latitude.degrees, subpoint.longitude.degrees, subpoint.elevation.km
