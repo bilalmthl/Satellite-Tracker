@@ -1,0 +1,16 @@
+# Satellite Tracker
+
+An interactive app to track and visualize satellite orbits in real time using Python, Skyfield, and Streamlit.
+
+## Features
+
+- Real-time satellite tracking (ISS by default)
+- 3D orbit visualization
+- Live position updates via Skyfield
+- Streamlit interface
+
+## Getting Started
+
+```bash
+pip install -r requirements.txt
+streamlit run src/satellite_tracker.py
