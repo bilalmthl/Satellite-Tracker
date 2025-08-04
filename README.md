@@ -4,7 +4,7 @@ An interactive app to track and visualize satellite orbits in real time using Py
 
 ## Features
 
-- Real-time satellite tracking (ISS by default)
+- Real-time satellite tracking
 - 3D orbit visualization
 - Live position updates via Skyfield
 - Streamlit interface
