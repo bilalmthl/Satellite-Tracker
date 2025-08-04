@@ -3,140 +3,185 @@ import pandas as pd
 import datetime
 from streamlit_autorefresh import st_autorefresh
 import plotly.express as px
-import streamlit.components.v1 as components
 
 from src.satellite_tracking import (
     get_available_satellites,
-    get_satellite_position
+    get_satellite_position,
+    get_satellite_metadata
 )
 from src.satellite_pass_ui import predict_passes
 from src.orbit_visualization import generate_orbit_plot
-
-# --------- Satellite Type Grouping ---------
-def get_satellite_type(name):
-    name = name.upper()
-    if "STARLINK" in name:
-        return "Starlink"
-    elif "NAVSTAR" in name or "GPS" in name:
-        return "GPS/NAVSTAR"
-    elif "ISS" in name:
-        return "ISS"
-    elif "TIANHE" in name or "CSS" in name or "SHENZHOU" in name:
-        return "Chinese Station"
-    elif "FREGAT" in name or "DEB" in name:
-        return "Debris"
-    else:
-        return "Other"
 
 # --------- Page Config ---------
 st.set_page_config(page_title="Satellite Tracker", layout="wide")
 st.title("🚀 Satellite Tracker Dashboard")
 
-st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ["🚀 Real-Time Tracker", "📡 Pass Predictor", "🌍 Orbit Visualizer"])
+# --------- Sidebar Navigation & Auto-refresh ---------
+with st.sidebar:
+    st.header("Navigation")
+    page = st.radio("Go to", ["🚀 Real-Time Tracker", "📡 Pass Predictor", "🌍 Orbit Visualizer"])
+    auto_refresh = st.checkbox("🔄 Auto-refresh every 15 s", value=False)
 
-auto_refresh = st.sidebar.checkbox("🔄 Auto-refresh every 15s", value=False)
-if auto_refresh and page == "🚀 Real-Time Tracker":
-    st_autorefresh(interval=15000, key="refresh")
+    # Fetch satellite metadata once
+    all_meta = get_available_satellites()  # list of dicts: {'name','type'}
+    all_types = sorted({m["type"] for m in all_meta})
 
-# --------- Satellite Selection ---------
-try:
-    all_sats = get_available_satellites()
-    multi_select = st.sidebar.checkbox("🔣 Multi-satellite mode", value=False)
+    # Type filter multiselect
+    selected_types = st.multiselect(
+        "Filter by Type",
+        options=all_types,
+        default=all_types
+    )
+    # If user clears all, treat as "all types"
+    if not selected_types:
+        selected_types = all_types
 
-    if multi_select:
-        sat_choices = st.sidebar.multiselect("Select Satellites", options=all_sats, default=["ISS (ZARYA)"])
+    st.markdown("---")
+    st.write("### Satellite Selection")
+
+    # Initialize session state for choices
+    if "sat_choices" not in st.session_state:
+        st.session_state.sat_choices = ["ISS (ZARYA)"]
+
+    # Apply the type filter
+    filtered = [m["name"] for m in all_meta if m["type"] in selected_types]
+
+    multi = st.checkbox("🔣 Multi-satellite mode", value=True)
+    if multi:
+        valid_defaults = [s for s in st.session_state.sat_choices if s in filtered]
+        st.session_state.sat_choices = st.multiselect(
+            "Choose satellites",
+            options=filtered,
+            default=valid_defaults
+        )
     else:
-        sat_choices = [st.sidebar.selectbox("🔍 Search & Select Satellite", options=all_sats, index=0)]
-except Exception as e:
-    st.sidebar.error("Could not load satellites.")
-    sat_choices = ["ISS (ZARYA)"]
+        if filtered:
+            choice = st.selectbox("Choose one", options=filtered, index=0)
+            st.session_state.sat_choices = [choice]
+        else:
+            st.session_state.sat_choices = []
+
+    # Set up auto-refresh only on Real-Time tab
+    if auto_refresh and page == "🚀 Real-Time Tracker":
+        st_autorefresh(interval=15_000, key="refresh")
+
+
+# Helper: render a UTC timestamp at the bottom
+def footer_timestamp():
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    st.markdown(
+        f"<p style='color:gray;font-size:0.9em;'>🕒 Last updated: {now}</p>",
+        unsafe_allow_html=True
+    )
+
 
 # --------- Real-Time Tracker ---------
 if page == "🚀 Real-Time Tracker":
     st.subheader("Live Satellite Positions")
-    raw_positions = []
-    now = datetime.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    rows = []
 
-    for name in sat_choices:
+    for name in st.session_state.sat_choices:
         try:
             lat, lon, alt = get_satellite_position(name)
-            raw_positions.append({
-                'Satellite': name,
-                'Latitude': lat,
-                'Longitude': lon,
-                'Altitude': alt,
-                'Type': get_satellite_type(name)
+            meta = get_satellite_metadata(name)
+            rows.append({
+                "name":  name,
+                "lat":   lat,
+                "lon":   lon,
+                "alt":   alt,
+                "type":  meta["type"],
+                "image": meta.get("image_url")
             })
         except Exception as e:
             st.warning(f"{name}: {e}")
 
-    df = pd.DataFrame(raw_positions)
-    df['LatRound'] = df['Latitude'].round(1)
-    df['LonRound'] = df['Longitude'].round(1)
+    if rows:
+        df = pd.DataFrame(rows)
+        df["LatR"] = df.lat.round(1)
+        df["LonR"] = df.lon.round(1)
 
-    grouped = (
-        df.groupby(['LatRound', 'LonRound', 'Type'])
-        .agg({
-            'Satellite': lambda x: ', '.join(sorted(set(x))),
-            'Latitude': 'mean',
-            'Longitude': 'mean'
-        })
-        .reset_index()
-    )
+        grouped = (
+            df.groupby(["LatR", "LonR", "type"])
+              .agg({
+                  "name":  lambda x: ", ".join(sorted(x)),
+                  "lat":   "mean",
+                  "lon":   "mean",
+                  "image": lambda imgs: next((u for u in imgs if u), None)
+              })
+              .reset_index()
+        )
 
-    if not grouped.empty:
+        # Map view
         fig = px.scatter_map(
             grouped,
-            lat="Latitude",
-            lon="Longitude",
-            color="Type",
-            hover_name="Satellite",
+            lat="lat",
+            lon="lon",
+            color="type",
+            hover_name="name",
             zoom=1,
             height=500
         )
-        fig.update_layout(margin={"r":0, "t":0, "l":0, "b":0})
+        fig.update_layout(margin={"r":0,"t":0,"l":0,"b":0})
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.warning("No valid satellite positions found.")
 
-    st.markdown(f"<p style='color:gray;font-size:0.9em;'>🕒 Last updated: {now} UTC</p>", unsafe_allow_html=True)
+        # Individual metrics + images
+        for sat in rows:
+            col1, col2 = st.columns([2,1])
+            with col1:
+                st.metric(
+                    label=f"{sat['name']} ({sat['type']})",
+                    value=f"{sat['lat']:.3f}°, {sat['lon']:.3f}°  |  {sat['alt']:.1f} km"
+                )
+            with col2:
+                if sat["image"]:
+                    st.image(sat["image"], width=500)
+                else:
+                    st.write("_No image available_")
+    else:
+        st.warning("No satellites selected or data unavailable.")
+
+    footer_timestamp()
+
 
 # --------- Pass Predictor ---------
 elif page == "📡 Pass Predictor":
     st.subheader("Predict Satellite Passes")
-
     lat = st.number_input("Your Latitude", value=51.05)
     lon = st.number_input("Your Longitude", value=-114.07)
-    hours = st.slider("Look Ahead (Hours)", 1, 72, 24)
+    hours = st.slider("Look Ahead (hours)", 1, 72, 24)
 
-    if st.button("Predict Passes", key="predict_btn"):
-        for sat_name in sat_choices:
-            with st.spinner(f"Calculating passes for {sat_name}..."):
+    if st.button("Predict Passes"):
+        for name in st.session_state.sat_choices:
+            with st.spinner(f"Calculating passes for {name}…"):
                 try:
-                    passes = predict_passes(sat_name, lat, lon, hours)
-                    st.markdown(f"### 📡 Passes for `{sat_name}`")
-                    if passes:
-                        st.table(passes)
+                    table = predict_passes(name, lat, lon, hours)
+                    st.markdown(f"#### 📡 {name}")
+                    if table:
+                        st.table(table)
                     else:
                         st.warning("No visible passes.")
                 except Exception as e:
-                    st.error(f"Error for {sat_name}: {e}")
+                    st.error(str(e))
+
+    footer_timestamp()
+
 
 # --------- Orbit Visualizer ---------
 elif page == "🌍 Orbit Visualizer":
     st.subheader("3D Orbit Visualizer")
-    minutes = st.slider("Orbit Duration (minutes)", 10, 120, 90)
-    view_mode = st.radio("Select View", ["🌀 3D Orbit Plot (Plotly)", "🌐 CesiumJS Globe"])
+    duration = st.slider("Duration (minutes)", 10, 120, 90)
+    view = st.radio("View Mode", ["🌀 Plotly 3D", "🌐 CesiumJS (Coming Soon)"])
 
-    if st.button("Generate Orbit", key="orbit_btn"):
-        for sat_name in sat_choices:
-            st.markdown(f"### 🚐 Orbit: `{sat_name}`")
-            if view_mode == "🌀 3D Orbit Plot (Plotly)":
+    if st.button("Generate Orbit"):
+        for name in st.session_state.sat_choices:
+            st.markdown(f"#### 🚐 {name}")
+            if view.startswith("🌀"):
                 try:
-                    fig = generate_orbit_plot(sat_name, minutes)
+                    fig = generate_orbit_plot(name, duration)
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     st.error(str(e))
             else:
-                st.info("🌐 CesiumJS Globe is coming soon. Stay tuned!")
+                st.info("CesiumJS globe is coming soon. Stay tuned!")
+
+    footer_timestamp()
