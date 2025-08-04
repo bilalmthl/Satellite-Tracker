@@ -25,7 +25,7 @@ with st.sidebar:
     st.markdown(
         """
         <div style="display:flex; align-items:center; gap:5px;">
-          <h2 style="margin:0;">🛰️ **Satellite Tracker**</h2>
+          <h2 style="margin:0;">🛰️ Satellite Tracker</h2>
         </div>
         """,
         unsafe_allow_html=True
